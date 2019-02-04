@@ -1,0 +1,63 @@
+#multi_AZ RDS
+---
+- hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    region: us-east-1
+    env: staging
+    size: 5
+    instance_type: db.t2.micro
+    db_engine: MySQL
+    engine_version: 5.6.23
+    subnet_group: dbsg_wordpress
+    param_group: wordpress
+# staging_sg_database security group ID
+   security_groups: sg-xxxxxx
+  tasks:
+    - name: "get {{ env }}subnetprivate_0 subnet id"
+      command: "aws ec2 describe-subnets --filters Name=tag:Name,Values={{ 
+      env }}subnetprivate_0 --region {{ region }} --query 'Subnets[0].SubnetId' --output text"
+      register: subnet0
+    - debug: var=subnet0.stdout
+    - name: "get {{ env }}_subnet_private_1 subnet id"
+      command: "aws ec2 describe-subnets --filters Name=tag:Name,Values={{ env }}_subnet_private_1 --region {{ region }} --query 'Subnets[0].SubnetId' --
+      output text"
+      register: subnet1
+    - debug: var=subnet1.stdout
+    - name: create Multi-AZ DB subnet group
+      rds_subnet_group:
+        name: "{{ subnet_group }}"
+        state: present
+        region: "{{ region }}"
+        description: DB Subnet Group for WordPress HA
+        subnets:
+          - "{{ subnet0.stdout }}"
+          - "{{ subnet1.stdout }}"
+    - name: create mysql parameter group
+      rds_param_group:
+        name: "{{ param_group }}"
+        state: present
+        region: "{{ region }}"
+        description: MySQL Parameter Group for WordPress HA
+        engine: mysql5.6
+        params:
+          innodb_lock_wait_timeout: 3600
+          max_allowed_packet: 512M
+          net_write_timeout: 300
+    - name: create mysql RDS instance
+      rds:
+        command: create
+        instance_name: "{{ env }}-wordpress-rds"
+        region: "{{ region }}"
+        size: "{{ size }}"
+        instance_type: "{{ instance_type }}"
+        db_engine: "{{ db_engine }}"
+        engine_version: "{{ engine_version }}"
+        subnet: "{{ subnet_group }}"
+        parameter_group: "{{ param_group }}"
+        multi_zone: yes
+        db_name: "{{ db_name }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        vpc_security_groups: "{{ security_groups }}"
